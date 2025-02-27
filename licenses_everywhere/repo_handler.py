@@ -16,18 +16,19 @@ from .config import config
 class RepoHandler:
     """Handler for repository operations."""
 
-    def __init__(self, temp_dir: Optional[str] = None, github_client=None, use_ssh: bool = False):
+    def __init__(self, temp_dir: Optional[str] = None, github_client=None, use_ssh: Optional[bool] = None):
         """
         Initialize the repository handler.
         
         Args:
             temp_dir: Directory to use for temporary clones. If None, uses system default.
             github_client: GitHubClient instance to use for authentication.
-            use_ssh: If True, use SSH for Git operations instead of HTTPS.
+            use_ssh: If True, use SSH for Git operations instead of HTTPS. Defaults to config setting.
         """
         self._temp_dir = temp_dir or config.get("temp_dir")
         self._github_client = github_client
-        self._use_ssh = use_ssh
+        # Use the provided value or fall back to the config setting (which defaults to True)
+        self._use_ssh = use_ssh if use_ssh is not None else config.get("use_ssh", True)
     
     def verify_github_auth(self) -> Tuple[bool, str]:
         """

@@ -30,7 +30,7 @@ def cli():
 @click.option("--auth-item", help="Item name in the credential manager (for 1Password/Bitwarden)")
 @click.option("--repos", "-r", help="Comma-separated list of specific repositories to check (e.g., 'repo1,repo2')")
 @click.option("--allow-skip", "-s", is_flag=True, help="Allow skipping license selection for repositories")
-@click.option("--use-ssh", is_flag=True, help="Use SSH for Git operations instead of HTTPS (avoids keychain access)")
+@click.option("--use-ssh/--no-ssh", default=None, help="Use SSH for Git operations (default: enabled). Use --no-ssh to disable and use HTTPS instead.")
 def scan(org, license, copyright, dry_run, token, auth_provider, auth_item, repos, allow_skip, use_ssh):
     """Scan repositories and add licenses where missing."""
     console = Console()
@@ -215,7 +215,7 @@ def auth_providers():
               help="Authentication provider to check")
 @click.option("--auth-item", help="Item name in the credential manager (for 1Password/Bitwarden)")
 @click.option("--token", "-t", help="GitHub token (required for direct provider)")
-@click.option("--use-ssh", is_flag=True, help="Check SSH authentication instead of HTTPS")
+@click.option("--use-ssh/--no-ssh", default=None, help="Check SSH authentication (default: enabled). Use --no-ssh to check HTTPS authentication instead.")
 def auth_status(auth_provider, auth_item, token, use_ssh):
     """Check the current authentication status."""
     from .github_client import GitHubClient
@@ -225,6 +225,10 @@ def auth_status(auth_provider, auth_item, token, use_ssh):
     
     try:
         # If using SSH, check SSH authentication
+        if use_ssh is None:
+            # Use the default from config
+            use_ssh = config.get("use_ssh", True)
+            
         if use_ssh:
             console.print("[bold]Checking SSH authentication with GitHub...[/bold]")
             

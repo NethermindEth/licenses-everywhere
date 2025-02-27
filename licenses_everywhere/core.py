@@ -22,7 +22,7 @@ class LicenseEverywhere:
 
     def __init__(self, token: Optional[str] = None, org_name: Optional[str] = None, 
                  auth_provider: Optional[str] = None, auth_item: Optional[str] = None,
-                 use_ssh: bool = False):
+                 use_ssh: Optional[bool] = None):
         """
         Initialize License Everywhere.
         
@@ -31,11 +31,13 @@ class LicenseEverywhere:
             org_name: GitHub organization name. If None, will use from config or prompt.
             auth_provider: Authentication provider to use ('gh', '1password', 'bitwarden', 'env').
             auth_item: Item name in the credential manager (for 1Password/Bitwarden).
-            use_ssh: If True, use SSH for Git operations instead of HTTPS.
+            use_ssh: If True, use SSH for Git operations instead of HTTPS. Defaults to config setting.
         """
         self.console = Console()
         self.github_client = GitHubClient(token, auth_provider, auth_item)
         self.license_manager = LicenseManager()
+        # Use the provided value or fall back to the config setting
+        use_ssh = use_ssh if use_ssh is not None else config.get("use_ssh", True)
         self.repo_handler = RepoHandler(github_client=self.github_client, use_ssh=use_ssh)
         self.org_name = org_name or config.get("default_organization")
     
