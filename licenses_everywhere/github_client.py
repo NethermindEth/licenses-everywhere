@@ -464,44 +464,61 @@ class GitHubClient:
         """
         Check if a repository has a license file.
         
-        This method uses multiple approaches to detect licenses:
-        1. First tries to use the GitHub API's get_license() method
-        2. If that fails, checks for common license filenames
-        
-        This multi-layered approach ensures reliable license detection even when
-        the GitHub API response structure changes or when repositories have
-        non-standard license files.
-        
         Args:
-            repo: Repository object to check.
+            repo: Repository to check.
             
         Returns:
-            True if the repository has a license, False otherwise.
+            True if the repository has a license file, False otherwise.
         """
-        # First check if GitHub API reports a license
         try:
-            # Use get_license() method instead of license attribute
-            license_content = repo.get_license()
-            if license_content:
-                return True
-        except (github.GithubException, AttributeError):
-            # Continue to check for license files if get_license() fails
-            pass
-        
-        # Also check for common license filenames
-        license_filenames = [
-            "LICENSE", "LICENSE.md", "LICENSE.txt", 
-            "COPYING", "COPYING.md", "COPYING.txt"
-        ]
-        
-        for filename in license_filenames:
+            # First try the API method
+            license_info = repo.get_license()
+            return license_info is not None
+        except github.GithubException as e:
+            # If the API method fails, check for common license filenames
             try:
-                repo.get_contents(filename)
+                # Check for LICENSE file
+                repo.get_contents("LICENSE")
                 return True
             except github.GithubException:
-                continue
+                try:
+                    # Check for LICENSE.md file
+                    repo.get_contents("LICENSE.md")
+                    return True
+                except github.GithubException:
+                    try:
+                        # Check for LICENSE.txt file
+                        repo.get_contents("LICENSE.txt")
+                        return True
+                    except github.GithubException:
+                        # No license file found
+                        return False
+
+    def get_license_content(self, repo: Repository) -> Optional[str]:
+        """
+        Get the content of a license file from a repository.
         
-        return False
+        Args:
+            repo: Repository to get the license from.
+            
+        Returns:
+            Content of the license file if found, None otherwise.
+        """
+        try:
+            # First try the API method
+            license_info = repo.get_license()
+            if license_info:
+                return license_info.decoded_content.decode('utf-8')
+        except github.GithubException:
+            # If the API method fails, check for common license filenames
+            for filename in ["LICENSE", "LICENSE.md", "LICENSE.txt"]:
+                try:
+                    content_file = repo.get_contents(filename)
+                    return content_file.decoded_content.decode('utf-8')
+                except github.GithubException:
+                    continue
+        
+        return None
     
     def get_repo_info(self, repo: Repository) -> Dict[str, Any]:
         """

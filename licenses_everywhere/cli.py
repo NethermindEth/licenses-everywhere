@@ -248,103 +248,162 @@ def auth_status(auth_provider, auth_item, token, use_ssh):
                 console.print(f"[bold green]SSH Authentication:[/bold green] Successful as [bold]{username}[/bold]")
                 console.print("You can use [bold]--use-ssh[/bold] with scan commands to use SSH for Git operations")
                 return
-            else:
-                console.print("[bold red]SSH Authentication Failed[/bold red]")
-                console.print(f"Error: {result.stderr.strip()}")
-                console.print("\n[bold yellow]To set up SSH authentication with GitHub:[/bold yellow]")
-                console.print("1. Generate an SSH key: [bold]ssh-keygen -t ed25519 -C \"your_email@example.com\"[/bold]")
-                console.print("2. Start the SSH agent: [bold]eval \"$(ssh-agent -s)\"[/bold]")
-                console.print("3. Add your key: [bold]ssh-add ~/.ssh/id_ed25519[/bold]")
-                console.print("4. Add the key to GitHub: https://github.com/settings/keys")
-                console.print("5. Test with: [bold]ssh -T git@github.com[/bold]")
-                return
+            
+            # If we get here, SSH authentication failed
+            console.print("[bold red]SSH Authentication:[/bold red] Failed")
+            console.print(f"Error: {result.stderr.strip()}")
+            console.print("Please check your SSH keys and GitHub configuration")
+            console.print("You can use [bold]--no-ssh[/bold] to use HTTPS authentication instead")
+            return
         
-        # If auth_provider is 'direct' but no token is provided, prompt for it
-        if auth_provider == "direct" and not token:
-            token = click.prompt("Enter GitHub token", hide_input=True)
+        # Check token authentication
+        console.print("[bold]Checking token authentication with GitHub...[/bold]")
         
-        # Initialize GitHub client with specified provider
+        # Initialize GitHub client
         github_client = GitHubClient(
-            token=token,
+            token=token, 
             auth_provider=auth_provider,
             auth_item=auth_item
         )
         
-        # Create repo handler
-        repo_handler = RepoHandler(github_client=github_client, use_ssh=use_ssh)
+        # Get authenticated username
+        username = github_client.get_authenticated_username()
         
-        # Check authentication status
-        is_authenticated, auth_message = repo_handler.verify_github_auth()
-        
-        if is_authenticated:
-            console.print(f"[bold green]Authentication Status:[/bold green] {auth_message}")
+        if username:
+            console.print(f"[bold green]Token Authentication:[/bold green] Successful as [bold]{username}[/bold]")
             
-            # Show additional information
-            console.print("\n[bold]GitHub User Information:[/bold]")
-            username = github_client.get_authenticated_username()
-            console.print(f"Username: [bold]{username}[/bold]")
-            
-            # Show which provider was used
+            # Check which authentication provider was used
             if auth_provider:
                 console.print(f"Using authentication provider: [bold]{auth_provider}[/bold]")
-                
-                # Show provider-specific information
-                if auth_provider == "direct":
-                    console.print("Using directly provided token")
-                elif auth_provider == "1password" and auth_item:
-                    console.print(f"Using 1Password item: [bold]{auth_item}[/bold]")
-                elif auth_provider == "bitwarden" and auth_item:
-                    console.print(f"Using Bitwarden item: [bold]{auth_item}[/bold]")
             else:
                 console.print("Using default authentication provider chain")
             
-            # If using GitHub CLI, show more details
-            if auth_provider == "gh" or (not auth_provider and github_client._token):
-                console.print("\n[bold]GitHub CLI Status:[/bold]")
-                try:
-                    result = subprocess.run(
-                        ["gh", "auth", "status"],
-                        capture_output=True,
-                        text=True,
-                        check=False
-                    )
-                    if result.returncode == 0:
-                        for line in result.stdout.strip().split("\n"):
-                            console.print(f"  {line}")
-                    else:
-                        console.print(f"  [yellow]GitHub CLI status check failed:[/yellow] {result.stderr.strip()}")
-                except Exception as e:
-                    console.print(f"  [yellow]Failed to check GitHub CLI status:[/yellow] {str(e)}")
-        else:
-            console.print(f"[bold red]Authentication Failed:[/bold red] {auth_message}")
+            # Check if token has sufficient permissions
+            console.print("\n[bold]Checking token permissions...[/bold]")
             
-            # Provide guidance based on the error
-            if "re-authorize" in auth_message or "reauthorize" in auth_message:
+            # Create a repo handler to check GitHub authentication
+            repo_handler = RepoHandler(github_client=github_client, use_ssh=False)
+            auth_status, auth_message = repo_handler.verify_github_auth()
+            
+            if auth_status:
+                console.print(f"[bold green]Token Permissions:[/bold green] {auth_message}")
+            else:
+                console.print(f"[bold red]Token Permissions:[/bold red] {auth_message}")
+        else:
+            console.print("[bold red]Token Authentication:[/bold red] Failed")
+            console.print("Could not get authenticated username")
+            console.print("Please check your token and authentication provider")
+    
+    except Exception as e:
+        console.print(f"[bold red]Error:[/bold red] {str(e)}")
+        sys.exit(1)
+
+
+@cli.command()
+@click.option("--org", "-o", help="GitHub organization name")
+@click.option("--expected-name", "-n", help="Expected company name in license files")
+@click.option("--dry-run", "-d", is_flag=True, help="Don't make any changes, just show what would be done")
+@click.option("--token", "-t", help="GitHub personal access token (uses auth providers if not provided)")
+@click.option("--auth-provider", "-a", 
+              type=click.Choice(["gh", "1password", "bitwarden", "env", "direct"], case_sensitive=False),
+              help="Authentication provider to use for GitHub token")
+@click.option("--auth-item", help="Item name in the credential manager (for 1Password/Bitwarden)")
+@click.option("--repos", "-r", help="Comma-separated list of specific repositories to check (e.g., 'repo1,repo2')")
+@click.option("--use-ssh/--no-ssh", default=None, help="Use SSH for Git operations (default: enabled). Use --no-ssh to disable and use HTTPS instead.")
+def verify_company_name(org, expected_name, dry_run, token, auth_provider, auth_item, repos, use_ssh):
+    """Verify company names in license files and update them if needed."""
+    console = Console()
+    
+    try:
+        # If auth_provider is 'direct' but no token is provided, prompt for it
+        if auth_provider == "direct" and not token:
+            token = click.prompt("Enter GitHub token", hide_input=True)
+        
+        # Initialize License Everywhere
+        try:
+            license_everywhere = LicenseEverywhere(
+                token=token, 
+                org_name=org,
+                auth_provider=auth_provider,
+                auth_item=auth_item,
+                use_ssh=use_ssh
+            )
+        except RuntimeError as e:
+            # Handle authentication errors with more helpful messages
+            error_msg = str(e)
+            console.print(f"[bold red]Authentication Error:[/bold red] {error_msg}")
+            
+            # Provide specific guidance based on the error
+            if "re-authorize" in error_msg or "reauthorize" in error_msg:
                 console.print("\n[bold yellow]To fix this issue:[/bold yellow]")
                 console.print("1. Run [bold]gh auth login[/bold] to refresh your GitHub CLI authentication")
                 console.print("2. Follow the prompts to authenticate with GitHub")
                 console.print("3. Run this command again")
+            elif "provider" in error_msg.lower() and "not available" in error_msg.lower():
+                console.print("\n[bold yellow]The specified authentication provider is not available.[/bold yellow]")
+                
+                if "1password" in error_msg.lower():
+                    console.print("1Password CLI is not installed or not properly configured.")
+                    console.print("To install 1Password CLI:")
+                    console.print("  - Mac: [bold]brew install 1password-cli[/bold]")
+                    console.print("  - Other: Visit https://1password.com/downloads/command-line/")
+                    console.print("\nAlternatively, you can use a direct token:")
+                    console.print("1. Create a token at https://github.com/settings/tokens")
+                    console.print("2. Run with: [bold]--auth-provider direct --token YOUR_TOKEN[/bold]")
+                elif "bitwarden" in error_msg.lower():
+                    console.print("Bitwarden CLI is not installed or not properly configured.")
+                    console.print("To install Bitwarden CLI: [bold]npm install -g @bitwarden/cli[/bold]")
+                    console.print("\nAlternatively, you can use a direct token:")
+                    console.print("1. Create a token at https://github.com/settings/tokens")
+                    console.print("2. Run with: [bold]--auth-provider direct --token YOUR_TOKEN[/bold]")
+                elif "gh" in error_msg.lower():
+                    console.print("GitHub CLI is not installed or not properly configured.")
+                    console.print("To install GitHub CLI:")
+                    console.print("  - Mac: [bold]brew install gh[/bold]")
+                    console.print("  - Other: Visit https://cli.github.com/")
+                    console.print("\nAlternatively, you can use a direct token:")
+                    console.print("1. Create a token at https://github.com/settings/tokens")
+                    console.print("2. Run with: [bold]--auth-provider direct --token YOUR_TOKEN[/bold]")
+                
+                console.print("\nRun [bold]licenses-everywhere auth-providers[/bold] to see available authentication options")
+            elif "token" in error_msg.lower() and "not found" in error_msg.lower():
+                console.print("\n[bold yellow]To fix this issue:[/bold yellow]")
+                console.print("1. Provide a token directly with [bold]--token YOUR_TOKEN[/bold]")
+                console.print("2. Or set up one of the authentication providers:")
+                console.print("   - GitHub CLI: Install and run [bold]gh auth login[/bold]")
+                console.print("   - Environment: Set [bold]export GITHUB_TOKEN=your_token[/bold]")
+                console.print("   - 1Password/Bitwarden: Install the CLI and store your token")
             
             console.print("\nRun [bold]licenses-everywhere auth-providers[/bold] to see available authentication options")
-    
+            sys.exit(1)
+        
+        # Parse specific repositories if provided
+        specific_repos = None
+        if repos:
+            specific_repos = [repo.strip() for repo in repos.split(",")]
+            console.print(f"Checking specific repositories: [bold]{', '.join(specific_repos)}[/bold]")
+        
+        # Check if expected name is provided
+        if not expected_name:
+            expected_name = click.prompt("Enter the expected company name in license files")
+        
+        # Run the workflow
+        result = license_everywhere.verify_company_name(
+            org_name=org,
+            expected_name=expected_name,
+            dry_run=dry_run,
+            specific_repos=specific_repos
+        )
+        
+        if result.get("success", False):
+            sys.exit(0)
+        else:
+            console.print(f"[bold red]Error:[/bold red] {result.get('message', 'Unknown error')}")
+            sys.exit(1)
+            
     except Exception as e:
         console.print(f"[bold red]Error:[/bold red] {str(e)}")
-        
-        # Provide guidance based on the error
-        if "provider" in str(e).lower() and "not available" in str(e).lower():
-            console.print("\n[bold yellow]The specified authentication provider is not available.[/bold yellow]")
-            console.print("Run [bold]licenses-everywhere auth-providers[/bold] to see available providers")
-            
-            # Suggest direct token as an alternative
-            console.print("\nAlternatively, you can use a direct token:")
-            console.print("1. Create a token at https://github.com/settings/tokens")
-            console.print("2. Run with: [bold]--auth-provider direct --token YOUR_TOKEN[/bold]")
-        elif "token" in str(e).lower():
-            console.print("\n[bold yellow]Authentication token issue:[/bold yellow]")
-            console.print("1. Check if your token is valid and has the necessary permissions")
-            console.print("2. For GitHub CLI: Run [bold]gh auth login[/bold] to refresh your authentication")
-            console.print("3. For 1Password/Bitwarden: Ensure the token is stored correctly")
-            console.print("4. For environment variables: Check if GITHUB_TOKEN is set correctly")
+        sys.exit(1)
 
 
 def main():

@@ -186,12 +186,12 @@ The system implements a sophisticated workflow for handling repositories with di
 1. For each repository, the system checks if the authenticated user has write access
 2. If the user has write access:
    - The repository is cloned directly
-   - Changes are made on a new branch
+   - Changes are made on a new branch prefixed with `chore/` (e.g., `chore/add-mit-license`)
    - A pull request is created within the same repository
 3. If the user doesn't have write access:
    - The system checks if the user has already forked the repository
    - If a fork exists, it is used; otherwise, a new fork is created
-   - Changes are made on a new branch in the forked repository
+   - Changes are made on a new branch in the forked repository prefixed with `chore/`
    - A pull request is created from the user's fork to the original repository
 
 This approach ensures that the tool can work with any repository, regardless of the user's access level, while following GitHub's best practices for contributions.
@@ -212,6 +212,17 @@ This approach ensures that the tool can work with any repository, regardless of 
    - Batch processing of repositories
    - Scheduled scanning for new repositories
    - Integration with CI/CD pipelines
+
+## Current Features
+
+1. **License Addition**: Adds license files to repositories that don't have them.
+
+2. **Company Name Verification**: 
+   - Scans all repositories to ensure the company name in license files is correct
+   - Identifies licenses with incorrect or outdated company names
+   - Creates pull requests to update license files with the correct company name
+   - Supports all license types managed by the system
+   - Provides reporting on which repositories needed updates
 
 ## Dependencies
 

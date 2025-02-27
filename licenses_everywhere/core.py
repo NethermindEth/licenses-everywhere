@@ -289,7 +289,7 @@ class LicenseEverywhere:
                 repo_path = self.repo_handler.clone_repo(clone_url, repo_name)
             
             # Create branch
-            branch_name = f"add-{license_type.lower()}-license"
+            branch_name = f"chore/add-{license_type.lower()}-license"
             with self.console.status(f"Creating branch {branch_name}..."):
                 self.repo_handler.create_branch(repo_path, branch_name)
             
@@ -370,4 +370,379 @@ class LicenseEverywhere:
                 "success": False,
                 "message": str(e),
                 "license": license_type
+            }
+
+    def verify_company_name(self, org_name: Optional[str] = None, expected_name: str = "",
+                           dry_run: bool = False, specific_repos: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Verify company names in license files and update them if needed.
+        
+        Args:
+            org_name: GitHub organization name.
+            expected_name: Expected company name.
+            dry_run: If True, don't make any changes, just show what would be done.
+            specific_repos: List of specific repositories to check.
+            
+        Returns:
+            Dictionary with results.
+        """
+        if not expected_name:
+            self.console.print("[bold red]Error:[/bold red] Expected company name is required.")
+            return {"success": False, "message": "Expected company name is required"}
+        
+        # Use the provided org name or the one from initialization
+        org_name = org_name or self.org_name
+        
+        if not org_name:
+            self.console.print("[bold red]Error:[/bold red] Organization name is required.")
+            return {"success": False, "message": "Organization name is required"}
+        
+        # Verify GitHub authentication
+        auth_status, auth_message = self.repo_handler.verify_github_auth()
+        if not auth_status:
+            self.console.print(f"[bold red]Authentication Error:[/bold red] {auth_message}")
+            return {"success": False, "message": auth_message}
+        
+        self.console.print(f"[green]{auth_message}[/green]")
+        
+        # Get organization
+        try:
+            org = self.github_client.get_organization(org_name)
+        except Exception as e:
+            self.console.print(f"[bold red]Error:[/bold red] {str(e)}")
+            return {"success": False, "message": str(e)}
+        
+        # Get repositories
+        try:
+            if specific_repos:
+                repos = []
+                for repo_name in specific_repos:
+                    try:
+                        # Handle both "org/repo" and "repo" formats
+                        if "/" in repo_name:
+                            full_name = repo_name
+                        else:
+                            full_name = f"{org_name}/{repo_name}"
+                        
+                        repo = self.github_client._github.get_repo(full_name)
+                        repos.append(repo)
+                    except Exception as e:
+                        self.console.print(f"[bold red]Error getting repository {repo_name}:[/bold red] {str(e)}")
+            else:
+                repos = self.github_client.get_public_repos(org_name)
+        except Exception as e:
+            self.console.print(f"[bold red]Error:[/bold red] {str(e)}")
+            return {"success": False, "message": str(e)}
+        
+        self.console.print(f"Found [bold]{len(repos)}[/bold] repositories in {org_name}")
+        
+        # Track results
+        results = {
+            "total_repos": len(repos),
+            "repos_with_license": 0,
+            "repos_with_incorrect_name": 0,
+            "repos_updated": 0,
+            "repos_skipped": 0,
+            "repos_with_errors": 0,
+            "details": []
+        }
+        
+        # Process each repository
+        for repo in repos:
+            self.console.print(f"\nChecking [bold]{repo.full_name}[/bold]...")
+            
+            # Check if repository has a license
+            has_license = self.github_client.has_license(repo)
+            
+            if not has_license:
+                self.console.print("  [yellow]No license file found[/yellow]")
+                results["repos_skipped"] += 1
+                results["details"].append({
+                    "repo": repo.full_name,
+                    "status": "skipped",
+                    "reason": "No license file found"
+                })
+                continue
+            
+            results["repos_with_license"] += 1
+            
+            # Get license content
+            license_content = self.github_client.get_license_content(repo)
+            if not license_content:
+                self.console.print("  [yellow]Could not read license content[/yellow]")
+                results["repos_skipped"] += 1
+                results["details"].append({
+                    "repo": repo.full_name,
+                    "status": "skipped",
+                    "reason": "Could not read license content"
+                })
+                continue
+            
+            # Check if company name is correct
+            is_correct = self.license_manager.verify_company_name(license_content, expected_name)
+            
+            if is_correct:
+                self.console.print("  [green]Company name is correct[/green]")
+                results["details"].append({
+                    "repo": repo.full_name,
+                    "status": "correct",
+                    "reason": "Company name is already correct"
+                })
+                continue
+            
+            results["repos_with_incorrect_name"] += 1
+            
+            # Detect the license type
+            license_type = self.license_manager.detect_license_type(license_content)
+            if not license_type:
+                self.console.print("  [yellow]Could not detect license type[/yellow]")
+                results["repos_skipped"] += 1
+                results["details"].append({
+                    "repo": repo.full_name,
+                    "status": "skipped",
+                    "reason": "Could not detect license type"
+                })
+                continue
+            
+            self.console.print(f"  [yellow]Company name is incorrect in {license_type} license[/yellow]")
+            
+            # Extract the current company name from the license
+            # This is a simplified approach and might need to be refined
+            copyright_line = None
+            for line in license_content.splitlines():
+                if "copyright" in line.lower() or "©" in line.lower():
+                    copyright_line = line
+                    break
+            
+            if not copyright_line:
+                self.console.print("  [yellow]Could not find copyright line[/yellow]")
+                results["repos_skipped"] += 1
+                results["details"].append({
+                    "repo": repo.full_name,
+                    "status": "skipped",
+                    "reason": "Could not find copyright line"
+                })
+                continue
+            
+            # Extract the current company name
+            # This is a simplified approach and might need to be refined
+            import re
+            year_pattern = r"\d{4}"
+            years = re.findall(year_pattern, copyright_line)
+            
+            if not years:
+                self.console.print("  [yellow]Could not extract year from copyright line[/yellow]")
+                results["repos_skipped"] += 1
+                results["details"].append({
+                    "repo": repo.full_name,
+                    "status": "skipped",
+                    "reason": "Could not extract year from copyright line"
+                })
+                continue
+            
+            # Get the text after the year
+            year = years[-1]  # Use the last year if multiple years are present
+            current_name = copyright_line.split(year, 1)[1].strip()
+            
+            # Remove common prefixes
+            for prefix in ["©", "Copyright", "copyright", "(c)", "(C)"]:
+                if current_name.startswith(prefix):
+                    current_name = current_name[len(prefix):].strip()
+            
+            # Remove leading punctuation
+            current_name = current_name.lstrip(" ,;:-")
+            
+            self.console.print(f"  Current name: [yellow]{current_name}[/yellow]")
+            self.console.print(f"  Expected name: [green]{expected_name}[/green]")
+            
+            if dry_run:
+                self.console.print("  [yellow]Dry run mode - no changes will be made[/yellow]")
+                results["details"].append({
+                    "repo": repo.full_name,
+                    "status": "would_update",
+                    "reason": "Company name is incorrect",
+                    "current_name": current_name,
+                    "expected_name": expected_name,
+                    "license_type": license_type
+                })
+                continue
+            
+            # Update the license
+            try:
+                # Process the repository
+                result = self._update_license(repo, license_content, current_name, expected_name, license_type)
+                
+                if result.get("success", False):
+                    results["repos_updated"] += 1
+                    self.console.print(f"  [bold green]Success![/bold green] {result['message']}")
+                else:
+                    results["repos_with_errors"] += 1
+                    self.console.print(f"  [bold red]Error:[/bold red] {result['message']}")
+                
+                results["details"].append({
+                    "repo": repo.full_name,
+                    "status": "updated" if result.get("success", False) else "error",
+                    "reason": result["message"],
+                    "current_name": current_name,
+                    "expected_name": expected_name,
+                    "license_type": license_type,
+                    "pr_url": result.get("pr_url")
+                })
+            except Exception as e:
+                results["repos_with_errors"] += 1
+                self.console.print(f"  [bold red]Error:[/bold red] {str(e)}")
+                results["details"].append({
+                    "repo": repo.full_name,
+                    "status": "error",
+                    "reason": str(e),
+                    "current_name": current_name,
+                    "expected_name": expected_name,
+                    "license_type": license_type
+                })
+        
+        # Print summary
+        self.console.print("\n[bold]Summary:[/bold]")
+        self.console.print(f"Total repositories: {results['total_repos']}")
+        self.console.print(f"Repositories with license: {results['repos_with_license']}")
+        self.console.print(f"Repositories with incorrect company name: {results['repos_with_incorrect_name']}")
+        self.console.print(f"Repositories updated: {results['repos_updated']}")
+        self.console.print(f"Repositories skipped: {results['repos_skipped']}")
+        self.console.print(f"Repositories with errors: {results['repos_with_errors']}")
+        
+        return {
+            "success": True,
+            "message": "Company name verification completed",
+            "results": results
+        }
+    
+    def _update_license(self, repo, license_content: str, current_name: str, 
+                       expected_name: str, license_type: str) -> Dict[str, Any]:
+        """
+        Update the license file in a repository.
+        
+        Args:
+            repo: Repository object.
+            license_content: Current license content.
+            current_name: Current company name.
+            expected_name: Expected company name.
+            license_type: License type.
+            
+        Returns:
+            Dictionary with results.
+        """
+        # Get repository info
+        repo_info = self.github_client.get_repo_info(repo)
+        
+        # Check if user has write access to the repository
+        has_write_access = repo_info.get("has_write_access", False)
+        
+        # If user doesn't have write access, fork the repository
+        forked_repo = None
+        if not has_write_access:
+            self.console.print("  [yellow]You don't have write access to this repository. Forking it to your account...[/yellow]")
+            with self.console.status("  Forking repository..."):
+                forked_repo = self.github_client.fork_repository(repo)
+            self.console.print(f"  [green]Repository forked successfully: {forked_repo.full_name}[/green]")
+            
+            # Use the forked repository URL for cloning
+            clone_url = forked_repo.clone_url
+            repo_name = forked_repo.name
+            original_repo_full_name = repo.full_name
+        else:
+            # Use the original repository URL for cloning
+            clone_url = repo.clone_url
+            repo_name = repo.name
+            original_repo_full_name = repo.full_name
+        
+        # Clone repository
+        with self.console.status(f"  Cloning repository {repo_name}..."):
+            repo_path = self.repo_handler.clone_repo(clone_url, repo_name)
+        
+        # Create branch
+        branch_name = f"chore/update-{license_type.lower()}-license-company-name"
+        with self.console.status(f"  Creating branch {branch_name}..."):
+            self.repo_handler.create_branch(repo_path, branch_name)
+        
+        # Update license content
+        updated_license = self.license_manager.update_company_name(license_content, current_name, expected_name)
+        
+        # Update license file
+        try:
+            with self.console.status("  Updating license file..."):
+                license_path = self.repo_handler.update_license_file(
+                    repo_path, 
+                    updated_license, 
+                    "LICENSE"  # Try with default name first
+                )
+        except FileNotFoundError:
+            # If LICENSE file not found, try with other common names
+            for filename in ["LICENSE.md", "LICENSE.txt", "COPYING", "COPYING.md", "COPYING.txt"]:
+                try:
+                    license_path = self.repo_handler.update_license_file(
+                        repo_path, 
+                        updated_license, 
+                        filename
+                    )
+                    break
+                except FileNotFoundError:
+                    continue
+            else:
+                return {
+                    "success": False,
+                    "message": "Could not find license file to update"
+                }
+        
+        # Commit changes
+        commit_message = f"Update company name in {license_type} license"
+        with self.console.status("  Committing changes..."):
+            self.repo_handler.commit_changes(repo_path, commit_message)
+        
+        # Push changes
+        with self.console.status("  Pushing changes..."):
+            self.repo_handler.push_changes(repo_path, branch_name)
+        
+        # Create pull request
+        pr_title = f"Update company name in {license_type} license"
+        pr_body = f"This PR updates the company name in the {license_type} license from '{current_name}' to '{expected_name}'."
+        
+        with self.console.status("  Creating pull request..."):
+            # If we're working with a fork, we need to specify the head branch differently
+            if forked_repo:
+                # Format: username:branch_name
+                head = f"{self.github_client._username}:{branch_name}"
+                pr_result = self.github_client.create_pull_request(
+                    original_repo_full_name,  # PR to the original repo
+                    branch_name,
+                    pr_title,
+                    pr_body,
+                    repo.default_branch,
+                    head=head  # Specify the head branch with username
+                )
+            else:
+                # Regular PR within the same repo
+                pr_result = self.github_client.create_pull_request(
+                    original_repo_full_name,
+                    branch_name,
+                    pr_title,
+                    pr_body,
+                    repo.default_branch
+                )
+        
+        # Clean up
+        self.repo_handler.cleanup(repo_path)
+        
+        if pr_result.get("success", False):
+            return {
+                "success": True,
+                "message": pr_result['message'],
+                "pr_url": pr_result.get('url'),
+                "license_type": license_type,
+                "forked": forked_repo is not None
+            }
+        else:
+            return {
+                "success": False,
+                "message": pr_result['message'],
+                "license_type": license_type,
+                "forked": forked_repo is not None
             } 

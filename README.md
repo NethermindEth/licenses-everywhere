@@ -12,6 +12,7 @@ A command-line tool to ensure all public repositories in a GitHub organization h
 - Support for multiple authentication providers (GitHub CLI, 1Password, Bitwarden, environment variables)
 - Uses SSH by default for Git operations (avoids keychain access issues)
 - Ability to fork repositories when you don't have write access
+- **Company Name Verification**: Scans repositories to ensure the company name in license files is correct and creates pull requests to fix any discrepancies
 
 ## Authentication
 
@@ -254,11 +255,28 @@ poetry install --with dev
 poetry run pytest
 
 # Format code
-poetry run black licenses_everywhere
-poetry run isort licenses_everywhere
+poetry run black .
+```
 
-# Type checking
-poetry run mypy licenses_everywhere
+### Python Artifacts
+
+The project includes a comprehensive `.gitignore` file to prevent Python artifacts from being committed to the repository. These include:
+
+- `__pycache__/` directories
+- `.pyc`, `.pyo`, and `.pyd` files
+- `.pytest_cache/` directory
+- Build artifacts (`dist/`, `build/`, `*.egg-info/`)
+- Virtual environments (`.venv/`, `env/`)
+
+If you need to clean these artifacts manually, you can run:
+
+```bash
+# Remove Python cache files
+find . -name "__pycache__" -type d -not -path "./.venv/*" -exec rm -rf {} +
+find . -name "*.pyc" -not -path "./.venv/*" -delete
+
+# Remove pytest cache
+rm -rf .pytest_cache
 ```
 
 ## Project Structure
@@ -355,4 +373,30 @@ If you encounter authentication errors:
    - If you've disabled SSH with `--no-ssh`, try using direct token authentication: `--auth-provider direct --token YOUR_TOKEN`
    - If you still see keychain prompts, try running: `git config --global credential.helper ""`
    - To restore normal Git behavior later: `git config --global credential.helper osxkeychain`
-   - Switch back to using SSH: remove the `--no-ssh` flag (SSH is the default) 
+   - Switch back to using SSH: remove the `--no-ssh` flag (SSH is the default)
+
+## Usage Examples
+
+### Scan an organization for repositories without licenses
+
+```bash
+licenses-everywhere scan --org your-organization
+```
+
+### Scan with a specific license type and copyright holder
+
+```bash
+licenses-everywhere scan --org your-organization --license MIT --copyright "Your Company, Inc."
+```
+
+### Verify company name in licenses
+
+```bash
+licenses-everywhere verify-company-name --org your-organization --expected-name "Your Company, Inc."
+```
+
+### Use a specific authentication provider
+
+```bash
+licenses-everywhere scan --org your-organization --auth-provider 1password --auth-item "GitHub Token"
+``` 

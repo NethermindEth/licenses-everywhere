@@ -186,4 +186,74 @@ SOFTWARE.
             "AGPL-3.0": "A copyleft license similar to GPL but with an additional provision addressing use over a network.",
             "Unlicense": "A license with no conditions whatsoever which dedicates works to the public domain.",
         }
-        return descriptions.get(license_type, "No description available.") 
+        return descriptions.get(license_type, "No description available.")
+
+    def verify_company_name(self, license_content: str, expected_name: str) -> bool:
+        """
+        Check if a license file has the correct company name.
+        
+        Args:
+            license_content: Content of the license file.
+            expected_name: Expected company name.
+            
+        Returns:
+            True if the company name is correct, False otherwise.
+        """
+        # Look for copyright lines in the license
+        copyright_line = None
+        for line in license_content.splitlines():
+            if "copyright" in line.lower() or "©" in line.lower():
+                copyright_line = line
+                break
+        
+        if not copyright_line:
+            # No copyright line found
+            return False
+        
+        # Check if the expected name is in the copyright line
+        return expected_name.lower() in copyright_line.lower()
+    
+    def update_company_name(self, license_content: str, old_name: str, new_name: str) -> str:
+        """
+        Update the company name in a license file.
+        
+        Args:
+            license_content: Content of the license file.
+            old_name: Current company name.
+            new_name: New company name.
+            
+        Returns:
+            Updated license content.
+        """
+        # Replace the company name in the license content
+        # This is a simple implementation that might need to be refined for specific license formats
+        return license_content.replace(old_name, new_name)
+    
+    def detect_license_type(self, license_content: str) -> Optional[str]:
+        """
+        Attempt to detect the license type from its content.
+        
+        Args:
+            license_content: Content of the license file.
+            
+        Returns:
+            License type if detected, None otherwise.
+        """
+        # Simple detection based on key phrases in each license
+        license_markers = {
+            "MIT": ["MIT License", "Permission is hereby granted, free of charge"],
+            "Apache-2.0": ["Apache License", "Version 2.0", "http://www.apache.org/licenses/"],
+            "GPL-3.0": ["GNU GENERAL PUBLIC LICENSE", "Version 3", "GNU General Public License"],
+            "BSD-3-Clause": ["Redistribution and use in source and binary forms", "3-Clause", "BSD"],
+            "MPL-2.0": ["Mozilla Public License", "Version 2.0"],
+            "LGPL-3.0": ["GNU LESSER GENERAL PUBLIC LICENSE", "Version 3"],
+            "AGPL-3.0": ["GNU AFFERO GENERAL PUBLIC LICENSE", "Version 3"],
+            "Unlicense": ["This is free and unencumbered software released into the public domain"],
+        }
+        
+        # Check each license type
+        for license_type, markers in license_markers.items():
+            if all(marker.lower() in license_content.lower() for marker in markers):
+                return license_type
+        
+        return None 

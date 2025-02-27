@@ -204,6 +204,43 @@ class RepoHandler:
         
         return license_path
     
+    def update_license_file(self, repo_path: str, license_content: str, 
+                           filename: str = "LICENSE") -> str:
+        """
+        Update a license file in a repository.
+        
+        Args:
+            repo_path: Path to the repository.
+            license_content: New content of the license file.
+            filename: Name of the license file.
+            
+        Returns:
+            Path to the license file.
+            
+        Raises:
+            IOError: If writing the file fails.
+            FileNotFoundError: If the license file doesn't exist.
+        """
+        license_path = os.path.join(repo_path, filename)
+        
+        # Check if the file exists
+        if not os.path.exists(license_path):
+            # Try common license filenames
+            for alt_filename in ["LICENSE.md", "LICENSE.txt", "COPYING", "COPYING.md", "COPYING.txt"]:
+                alt_path = os.path.join(repo_path, alt_filename)
+                if os.path.exists(alt_path):
+                    license_path = alt_path
+                    filename = alt_filename
+                    break
+            else:
+                raise FileNotFoundError(f"License file not found in {repo_path}")
+        
+        # Update the file
+        with open(license_path, "w") as f:
+            f.write(license_content)
+        
+        return license_path
+    
     def create_branch(self, repo_path: str, branch_name: str) -> None:
         """
         Create a new branch in a repository.
