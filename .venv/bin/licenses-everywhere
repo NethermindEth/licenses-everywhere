@@ -1,6 +1,0 @@
-#!/Users/jorikschellekens/dev/licenses-everywhere/.venv/bin/python
-import sys
-from licenses_everywhere.cli import main
-
-if __name__ == '__main__':
-    sys.exit(main())
