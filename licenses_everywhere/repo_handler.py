@@ -16,14 +16,18 @@ from .config import config
 class RepoHandler:
     """Handler for repository operations."""
 
-    def __init__(self, temp_dir: Optional[str] = None):
+    def __init__(self, temp_dir: Optional[str] = None, github_client=None, use_ssh: bool = False):
         """
         Initialize the repository handler.
         
         Args:
             temp_dir: Directory to use for temporary clones. If None, uses system default.
+            github_client: GitHubClient instance to use for authentication.
+            use_ssh: If True, use SSH for Git operations instead of HTTPS.
         """
         self._temp_dir = temp_dir or config.get("temp_dir")
+        self._github_client = github_client
+        self._use_ssh = use_ssh
     
     def verify_github_auth(self) -> Tuple[bool, str]:
         """
@@ -32,6 +36,19 @@ class RepoHandler:
         Returns:
             Tuple of (is_authenticated, message)
         """
+        # If we have a GitHub client, use it to verify authentication
+        if self._github_client:
+            try:
+                # Try to get the authenticated user
+                username = self._github_client.get_authenticated_username()
+                if username:
+                    return True, f"Authenticated as {username}"
+                else:
+                    return False, "Failed to get authenticated user"
+            except Exception as e:
+                return False, f"GitHub authentication issue: {str(e)}"
+        
+        # Fallback to gh CLI check if no GitHub client
         try:
             # Check if gh CLI is authenticated
             result = subprocess.run(
@@ -67,13 +84,47 @@ class RepoHandler:
         temp_dir = tempfile.mkdtemp(prefix=f"{repo_name}_", dir=self._temp_dir)
         
         try:
-            # Clone the repository
-            result = subprocess.run(
-                ["git", "clone", repo_url, temp_dir],
-                capture_output=True,
-                text=True,
-                check=False  # Handle errors manually for better messages
-            )
+            # If using SSH, convert the URL to SSH format
+            if self._use_ssh:
+                # Convert HTTPS URL to SSH URL
+                # From: https://github.com/owner/repo.git
+                # To:   git@github.com:owner/repo.git
+                if repo_url.startswith("https://github.com/"):
+                    repo_path = repo_url.replace("https://github.com/", "")
+                    if repo_path.endswith(".git"):
+                        repo_path = repo_path[:-4]
+                    repo_url = f"git@github.com:{repo_path}.git"
+            
+            # If we have a GitHub client with a token, set up git credentials
+            if not self._use_ssh and self._github_client and hasattr(self._github_client, '_token') and self._github_client._token:
+                # Set up environment with the token
+                env = os.environ.copy()
+                env["GIT_ASKPASS"] = "echo"
+                env["GIT_USERNAME"] = "x-access-token"
+                env["GIT_PASSWORD"] = self._github_client._token
+                
+                # Disable credential helper to prevent keychain access
+                # First create a temporary git config
+                temp_gitconfig = os.path.join(temp_dir, "temp_gitconfig")
+                with open(temp_gitconfig, "w") as f:
+                    f.write("[credential]\n\thelper=\n")  # Empty helper disables credential storage
+                
+                # Clone the repository using the environment variables for auth and custom config
+                result = subprocess.run(
+                    ["git", "-c", f"include.path={temp_gitconfig}", "clone", repo_url, temp_dir],
+                    capture_output=True,
+                    text=True,
+                    check=False,  # Handle errors manually for better messages
+                    env=env
+                )
+            else:
+                # No token available or using SSH, use normal clone
+                result = subprocess.run(
+                    ["git", "clone", repo_url, temp_dir],
+                    capture_output=True,
+                    text=True,
+                    check=False  # Handle errors manually for better messages
+                )
             
             if result.returncode != 0:
                 # Clean up on failure
@@ -109,22 +160,22 @@ class RepoHandler:
             return (
                 "You need to re-authorize the OAuth Application. "
                 "Please visit GitHub and approve the authorization request, "
-                "or run 'gh auth login' to authenticate with GitHub CLI."
+                "or use one of the available authentication providers."
             )
         elif "The requested URL returned error: 403" in error_message:
             return (
                 "Access forbidden (403). This could be due to: "
-                "1. Expired credentials - run 'gh auth login' to reauthenticate "
+                "1. Expired credentials - try reauthenticating "
                 "2. Insufficient permissions for this repository "
                 "3. Repository access restrictions"
             )
         elif "The requested URL returned error: 401" in error_message:
-            return "Authentication failed. Please run 'gh auth login' to reauthenticate with GitHub."
+            return "Authentication failed. Please check your credentials or try a different authentication provider."
         else:
             return (
                 f"{error_message}\n"
                 "To fix authentication issues, try:\n"
-                "1. Run 'gh auth login' to authenticate with GitHub CLI\n"
+                "1. Use a different authentication provider\n"
                 "2. Check your token permissions and expiration\n"
                 "3. Verify you have access to the repository"
             )
@@ -219,13 +270,27 @@ class RepoHandler:
             RuntimeError: If pushing fails.
         """
         try:
+            # Set up environment with the token if available
+            env = os.environ.copy()
+            git_cmd = ["git", "push", "origin", branch_name]
+            
+            # Only use token authentication if not using SSH
+            if not self._use_ssh and self._github_client and hasattr(self._github_client, '_token') and self._github_client._token:
+                env["GIT_ASKPASS"] = "echo"
+                env["GIT_USERNAME"] = "x-access-token"
+                env["GIT_PASSWORD"] = self._github_client._token
+                
+                # Disable credential helper to prevent keychain access
+                git_cmd = ["git", "-c", "credential.helper=", "push", "origin", branch_name]
+            
             # Push changes
             result = subprocess.run(
-                ["git", "push", "origin", branch_name],
+                git_cmd,
                 cwd=repo_path,
                 capture_output=True,
                 text=True,
-                check=False  # Handle errors manually for better messages
+                check=False,  # Handle errors manually for better messages
+                env=env
             )
             
             if result.returncode != 0:

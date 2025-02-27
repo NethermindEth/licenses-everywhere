@@ -33,30 +33,82 @@ licenses-everywhere/
 
 ## Component Architecture
 
-The system is composed of the following components:
+### Core Components
 
-1. **CLI Interface** (`cli.py`): Handles command-line arguments and user interaction.
-2. **Core Module** (`core.py`): Orchestrates the overall process and workflow.
-3. **GitHub API Client** (`github_client.py`): Manages interactions with the GitHub API.
-4. **License Manager** (`license_manager.py`): Handles license template management.
-5. **Repository Handler** (`repo_handler.py`): Manages repository operations.
-6. **Configuration Manager** (`config.py`): Manages user configuration.
+1. **LicenseEverywhere** (`core.py`): The main orchestrator class that coordinates the workflow between other components.
+
+2. **GitHubClient** (`github_client.py`): Handles interactions with the GitHub API, including:
+   - Fetching repositories
+   - Checking for license files
+   - Creating pull requests
+   - Forking repositories
+   - Authentication with multiple providers
+
+3. **LicenseManager** (`license_manager.py`): Manages license templates and generation, including:
+   - Loading license templates
+   - Generating license content with proper placeholders
+   - Providing license metadata
+
+4. **RepoHandler** (`repo_handler.py`): Handles Git operations, including:
+   - Cloning repositories
+   - Creating branches
+   - Adding license files
+   - Committing and pushing changes
+   - Authentication verification
+
+5. **CLI** (`cli.py`): Provides the command-line interface using Click.
+
+### Authentication System
+
+The authentication system is designed to be flexible, secure, and user-friendly:
+
+1. **Multiple Authentication Providers**:
+   - We implemented a plugin-based authentication system with a common interface
+   - Each provider implements the `AuthProvider` base class
+   - Providers are tried in a priority order until one succeeds
+   - Users can specify which provider to use via the CLI
+
+2. **Authentication Provider Implementation**:
+   - **GitHub CLI** (`GhCliAuthProvider`): Uses the GitHub CLI's authentication, which is secure and handles token refresh automatically
+   - **1Password** (`OnePasswordAuthProvider`): Retrieves tokens from 1Password, allowing secure storage of tokens
+   - **Bitwarden** (`BitwArdenAuthProvider`): Retrieves tokens from Bitwarden, providing an open-source alternative
+   - **Environment Variables** (`EnvVarAuthProvider`): Uses the `GITHUB_TOKEN` environment variable for CI/CD pipelines
+   - **Direct Token** (`DirectTokenAuthProvider`): Allows providing a token directly via the CLI
+
+3. **Provider Selection Logic**:
+   - If a specific provider is requested, only that one is tried
+   - If no provider is specified, all available providers are tried in order
+   - Providers check their own availability before attempting to retrieve a token
+   - Detailed error messages are provided if authentication fails
+
+4. **Security Considerations**:
+   - Tokens are never stored by the application
+   - Integration with secure credential managers (1Password, Bitwarden) keeps tokens secure
+   - GitHub CLI integration leverages its secure token storage and refresh mechanisms
 
 ## Data Flow
 
-1. User invokes the CLI with organization name and options (including specific repositories if desired)
-2. CLI parses arguments and passes them to the Core module
-3. Core module initializes the GitHub client and Repository handler
-4. **Authentication verification is performed to ensure GitHub access**
-5. GitHub client fetches all public repositories for the organization (or filters to specific repositories if requested)
-6. Repository handler identifies repositories without licenses
-7. License manager provides appropriate license templates
-8. For each repository without a license:
-   - User can select a license type or skip the repository (if --allow-skip is enabled)
-   - **System checks if the user has write access to the repository**
-   - **If the user doesn't have write access, the repository is forked to the user's account**
-   - Repository handler creates branches, adds license files, and creates pull requests
-9. Results are reported back to the user via the CLI
+1. **User Input**: The user provides input via the CLI, including:
+   - Organization name
+   - License type preference
+   - Authentication provider preference
+   - Other options
+
+2. **Repository Discovery**: The GitHubClient fetches repositories from the specified organization.
+
+3. **License Check**: Each repository is checked for an existing license file.
+
+4. **License Selection**: For repositories without licenses, the user selects a license type.
+
+5. **Repository Processing**:
+   - The repository is cloned
+   - A new branch is created
+   - The license file is added
+   - Changes are committed and pushed
+
+6. **Pull Request Creation**: A pull request is created to add the license file.
+
+7. **Result Reporting**: Results are reported back to the user.
 
 ## Technical Decisions
 
@@ -66,18 +118,25 @@ The system is composed of the following components:
 - Implements robust error handling for API calls, particularly for license detection
 - Uses multiple methods to detect licenses (API-reported licenses and file-based detection)
 
-### Repository Forking and Access Control
-- Automatically detects if the user has write access to a repository
-- Forks repositories to the user's account when they don't have write access
-- Creates pull requests from the user's fork to the original repository
-- Handles cross-repository pull requests with proper head branch specification
-- Reuses existing forks if the user has already forked the repository
+### Repository Forking
+
+For repositories where the user doesn't have write access:
+
+1. The system automatically forks the repository to the user's account
+2. Changes are made in the forked repository
+3. A pull request is created from the fork to the original repository
+
+This approach follows GitHub's best practices for contributions and allows users to contribute to repositories they don't directly own.
 
 ### License Template Management
-- Templates stored in a dedicated directory
-- Default templates created automatically if not present
-- Supports multiple license types (MIT, Apache 2.0)
-- Templates can be customized by the user
+
+License templates are stored as Jinja2 templates with placeholders for:
+
+1. Copyright holder name
+2. Current year
+3. Project-specific information
+
+This allows for flexible and customizable license generation while maintaining compliance with standard license formats.
 
 ### Repository Operations
 - Non-destructive approach using pull requests
@@ -139,11 +198,20 @@ This approach ensures that the tool can work with any repository, regardless of 
 
 ## Future Enhancements
 
-- Support for additional license types
-- Integration with CI/CD pipelines
-- Batch processing for large organizations
-- License compliance reporting
-- Custom license template variables
+1. **Additional Authentication Providers**:
+   - Support for other credential managers (LastPass, KeePass, etc.)
+   - Support for OAuth web flow authentication
+   - Support for GitHub App authentication
+
+2. **Enhanced License Management**:
+   - Support for custom license templates
+   - License compliance checking
+   - License compatibility analysis
+
+3. **Improved Repository Handling**:
+   - Batch processing of repositories
+   - Scheduled scanning for new repositories
+   - Integration with CI/CD pipelines
 
 ## Dependencies
 

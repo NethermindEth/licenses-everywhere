@@ -21,6 +21,7 @@ class Config:
         "pr_title": "Add license file",
         "pr_body": "This PR adds a license file to the repository.",
         "license_filename": "LICENSE",
+        "use_ssh": True,  # Default to using SSH for Git operations
     }
 
     def __init__(self):

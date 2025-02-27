@@ -20,18 +20,23 @@ from .repo_handler import RepoHandler
 class LicenseEverywhere:
     """Main class for License Everywhere."""
 
-    def __init__(self, token: Optional[str] = None, org_name: Optional[str] = None):
+    def __init__(self, token: Optional[str] = None, org_name: Optional[str] = None, 
+                 auth_provider: Optional[str] = None, auth_item: Optional[str] = None,
+                 use_ssh: bool = False):
         """
         Initialize License Everywhere.
         
         Args:
-            token: GitHub personal access token. If None, will attempt to get from gh CLI.
+            token: GitHub personal access token. If None, will attempt to get from auth providers.
             org_name: GitHub organization name. If None, will use from config or prompt.
+            auth_provider: Authentication provider to use ('gh', '1password', 'bitwarden', 'env').
+            auth_item: Item name in the credential manager (for 1Password/Bitwarden).
+            use_ssh: If True, use SSH for Git operations instead of HTTPS.
         """
         self.console = Console()
-        self.github_client = GitHubClient(token)
+        self.github_client = GitHubClient(token, auth_provider, auth_item)
         self.license_manager = LicenseManager()
-        self.repo_handler = RepoHandler()
+        self.repo_handler = RepoHandler(github_client=self.github_client, use_ssh=use_ssh)
         self.org_name = org_name or config.get("default_organization")
     
     def run(self, org_name: Optional[str] = None, license_type: Optional[str] = None,
@@ -73,29 +78,54 @@ class LicenseEverywhere:
         
         if not is_authenticated and not dry_run:
             self.console.print(f"[bold red]Authentication Error:[/bold red] {auth_message}")
-            self.console.print("[yellow]Please authenticate with GitHub before proceeding.[/yellow]")
-            self.console.print("Run 'gh auth login' to authenticate with GitHub CLI.")
             
-            if not Confirm.ask("Continue anyway?", default=False):
-                return {"success": False, "message": "Authentication failed. Operation aborted."}
+            # Provide specific guidance based on the error
+            if "re-authorize" in auth_message or "reauthorize" in auth_message:
+                self.console.print("\n[bold yellow]To fix this issue:[/bold yellow]")
+                self.console.print("1. Run [bold]gh auth login[/bold] to refresh your GitHub CLI authentication")
+                self.console.print("2. Follow the prompts to authenticate with GitHub")
+                self.console.print("3. Run this command again")
+                
+                if not Confirm.ask("Continue anyway?", default=False):
+                    return {"success": False, "message": "Authentication failed. Operation aborted."}
+            else:
+                self.console.print("[yellow]Please authenticate with GitHub before proceeding.[/yellow]")
+                self.console.print("Use one of the available authentication providers or provide a token directly.")
+                
+                if not Confirm.ask("Continue anyway?", default=False):
+                    return {"success": False, "message": "Authentication failed. Operation aborted."}
             
             self.console.print("[yellow]Continuing without authentication verification. This may cause errors later.[/yellow]")
         elif is_authenticated:
             self.console.print(f"[bold green]Authentication:[/bold green] {auth_message}")
         
         # Get repositories
-        self.console.print(f"Fetching repositories for organization: [bold]{org_name}[/bold]")
-        
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TimeElapsedColumn(),
-            console=self.console
-        ) as progress:
-            task = progress.add_task("Fetching repositories...", total=None)
-            all_repos = self.github_client.get_public_repos(org_name)
-            progress.update(task, total=len(all_repos), completed=len(all_repos))
+        try:
+            self.console.print(f"Fetching repositories for organization: [bold]{org_name}[/bold]")
+            
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TimeElapsedColumn(),
+                console=self.console
+            ) as progress:
+                task = progress.add_task("Fetching repositories...", total=None)
+                all_repos = self.github_client.get_public_repos(org_name)
+                progress.update(task, total=len(all_repos), completed=len(all_repos))
+        except Exception as e:
+            error_msg = str(e)
+            self.console.print(f"[bold red]Error fetching repositories:[/bold red] {error_msg}")
+            
+            # Check for authentication-related errors
+            if "auth" in error_msg.lower() or "token" in error_msg.lower() or "401" in error_msg or "403" in error_msg:
+                self.console.print("\n[bold yellow]This appears to be an authentication issue.[/bold yellow]")
+                self.console.print("Please ensure you have valid GitHub authentication:")
+                self.console.print("1. Run [bold]gh auth login[/bold] if using GitHub CLI")
+                self.console.print("2. Or provide a valid token with [bold]--token YOUR_TOKEN[/bold]")
+                self.console.print("3. Run [bold]licenses-everywhere auth-providers[/bold] to see all options")
+            
+            return {"success": False, "message": f"Failed to fetch repositories: {error_msg}"}
         
         # Filter repositories if specific ones are requested
         if specific_repos:

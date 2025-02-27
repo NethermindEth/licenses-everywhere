@@ -56,6 +56,9 @@ def mock_github_client():
     # Mock username
     mock._username = "test-user"
     
+    # Mock get_authenticated_username
+    mock.get_authenticated_username.return_value = "test-user"
+    
     return mock
 
 
@@ -81,10 +84,11 @@ def mock_repo_handler():
     return mock
 
 
+@patch("licenses_everywhere.core.GitHubClient")
 @patch("licenses_everywhere.core.Prompt")
 @patch("licenses_everywhere.core.Confirm")
 @patch("licenses_everywhere.core.Progress")
-def test_specific_repos(mock_progress, mock_confirm, mock_prompt, mock_github_client, mock_license_manager, mock_repo_handler):
+def test_specific_repos(mock_progress, mock_confirm, mock_prompt, mock_github_client_class, mock_github_client, mock_license_manager, mock_repo_handler):
     """Test specifying specific repositories."""
     # Set up mocks
     mock_prompt.ask.return_value = "MIT"
@@ -95,9 +99,11 @@ def test_specific_repos(mock_progress, mock_confirm, mock_prompt, mock_github_cl
     mock_progress.return_value.__enter__.return_value = progress_instance
     progress_instance.add_task.return_value = 1
     
+    # Set up GitHubClient mock
+    mock_github_client_class.return_value = mock_github_client
+    
     # Create LicenseEverywhere instance with mocks
     license_everywhere = LicenseEverywhere()
-    license_everywhere.github_client = mock_github_client
     license_everywhere.license_manager = mock_license_manager
     license_everywhere.repo_handler = mock_repo_handler
     license_everywhere.console = MagicMock()
@@ -124,10 +130,11 @@ def test_specific_repos(mock_progress, mock_confirm, mock_prompt, mock_github_cl
     assert license_everywhere._process_repo.call_count == 2
 
 
+@patch("licenses_everywhere.core.GitHubClient")
 @patch("licenses_everywhere.core.Prompt")
 @patch("licenses_everywhere.core.Confirm")
 @patch("licenses_everywhere.core.Progress")
-def test_allow_skip(mock_progress, mock_confirm, mock_prompt, mock_github_client, mock_license_manager, mock_repo_handler):
+def test_allow_skip(mock_progress, mock_confirm, mock_prompt, mock_github_client_class, mock_github_client, mock_license_manager, mock_repo_handler):
     """Test skipping license selection."""
     # Set up mocks
     mock_prompt.ask.side_effect = ["skip", "MIT"]
@@ -138,9 +145,11 @@ def test_allow_skip(mock_progress, mock_confirm, mock_prompt, mock_github_client
     mock_progress.return_value.__enter__.return_value = progress_instance
     progress_instance.add_task.return_value = 1
     
+    # Set up GitHubClient mock
+    mock_github_client_class.return_value = mock_github_client
+    
     # Create LicenseEverywhere instance with mocks
     license_everywhere = LicenseEverywhere()
-    license_everywhere.github_client = mock_github_client
     license_everywhere.license_manager = mock_license_manager
     license_everywhere.repo_handler = mock_repo_handler
     license_everywhere.console = MagicMock()

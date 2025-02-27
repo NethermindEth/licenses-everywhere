@@ -73,7 +73,7 @@ def test_get_auth_help_message_oauth(mock_run, repo_handler):
     help_message = repo_handler._get_auth_help_message(error_message)
     
     assert "re-authorize the OAuth Application" in help_message
-    assert "gh auth login" in help_message
+    assert "available authentication providers" in help_message
 
 
 @patch("subprocess.run")
@@ -83,7 +83,7 @@ def test_get_auth_help_message_403(mock_run, repo_handler):
     help_message = repo_handler._get_auth_help_message(error_message)
     
     assert "Access forbidden (403)" in help_message
-    assert "run 'gh auth login'" in help_message
+    assert "try reauthenticating" in help_message
 
 
 @patch("subprocess.run")

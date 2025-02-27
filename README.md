@@ -4,13 +4,123 @@ A command-line tool to ensure all public repositories in a GitHub organization h
 
 ## Features
 
-- Scans all public repositories in a GitHub organization
-- Identifies repositories missing license files
-- Interactive license selection for each repository
-- Automatically creates pull requests to add licenses
-- Supports multiple license types
-- Clean and intuitive command-line interface
-- Automatically forks repositories when you don't have write access
+- Scan GitHub organizations for repositories without license files
+- Add appropriate license files to repositories via pull requests
+- Support for multiple license types (MIT, Apache 2.0, GPL, etc.)
+- Customizable copyright holder information
+- Dry-run mode to preview changes without making them
+- Support for multiple authentication providers (GitHub CLI, 1Password, Bitwarden, environment variables)
+- Ability to fork repositories when you don't have write access
+
+## Authentication
+
+License Everywhere supports multiple authentication methods:
+
+1. **GitHub CLI** - Uses the GitHub CLI's authentication (recommended for most users)
+2. **1Password** - Retrieves tokens from 1Password CLI
+3. **Bitwarden** - Retrieves tokens from Bitwarden CLI
+4. **Environment Variables** - Uses the `GITHUB_TOKEN` environment variable
+5. **Direct Token** - Provide a token directly via the `--token` option or interactive prompt
+6. **SSH** - Use SSH for Git operations instead of HTTPS (avoids keychain access)
+
+You can specify which authentication provider to use with the `--auth-provider` option:
+
+```bash
+# Use GitHub CLI authentication
+licenses-everywhere scan --org myorg --auth-provider gh
+
+# Use 1Password authentication
+licenses-everywhere scan --org myorg --auth-provider 1password --auth-item "GitHub Token"
+
+# Use Bitwarden authentication
+licenses-everywhere scan --org myorg --auth-provider bitwarden --auth-item "GitHub Token"
+
+# Use environment variable authentication
+licenses-everywhere scan --org myorg --auth-provider env
+
+# Use direct token authentication
+licenses-everywhere scan --org myorg --auth-provider direct --token ghp_your_token_here
+# Or without providing the token on the command line (you'll be prompted)
+licenses-everywhere scan --org myorg --auth-provider direct
+
+# Use SSH authentication (avoids keychain access)
+licenses-everywhere scan --org myorg --use-ssh
+```
+
+To see which authentication providers are available on your system:
+
+```bash
+licenses-everywhere auth-providers
+```
+
+To check your current authentication status:
+
+```bash
+licenses-everywhere auth-status
+# Or with a specific provider
+licenses-everywhere auth-status --auth-provider gh
+licenses-everywhere auth-status --auth-provider 1password --auth-item "GitHub Token"
+licenses-everywhere auth-status --auth-provider direct --token ghp_your_token_here
+# Check SSH authentication
+licenses-everywhere auth-status --use-ssh
+```
+
+### Authentication Provider Details
+
+#### GitHub CLI (`gh`)
+- Uses the GitHub CLI's built-in authentication mechanism
+- On macOS, this typically uses the system keychain
+- Requires the GitHub CLI to be installed and authenticated
+- To set up: `gh auth login`
+- To check status: `gh auth status`
+
+#### 1Password
+- Retrieves tokens directly from 1Password using the 1Password CLI
+- Requires the 1Password CLI (`op`) to be installed and configured
+- To set up: 
+  1. Install 1Password CLI: `brew install 1password-cli` (macOS)
+  2. Sign in: `op signin`
+  3. Store your GitHub token in 1Password with a field named "token"
+
+#### Bitwarden
+- Retrieves tokens directly from Bitwarden using the Bitwarden CLI
+- Requires the Bitwarden CLI (`bw`) to be installed and configured
+- To set up:
+  1. Install Bitwarden CLI: `npm install -g @bitwarden/cli`
+  2. Log in: `bw login`
+  3. Unlock the vault: `bw unlock`
+  4. Store your GitHub token in Bitwarden
+
+#### Environment Variables
+- Uses the `GITHUB_TOKEN` environment variable
+- To set up: `export GITHUB_TOKEN=your_token_here`
+
+#### Direct Token
+- Most reliable method as it doesn't depend on external tools
+- Provide a token directly via the `--token` option
+- If no token is provided, you'll be prompted to enter one
+- Tokens are not stored between runs for security reasons
+- When using the direct token provider, the token is used for:
+  - All GitHub API operations
+  - Git clone and push operations (embedded in the URL)
+  - Pull request creation
+- This avoids the need to use the system keychain or GitHub CLI's OAuth application
+- **Important**: This method explicitly disables Git's credential helper to prevent macOS keychain access
+- For users experiencing issues with keychain prompts, this is the recommended authentication method
+
+#### SSH Authentication
+- Uses SSH keys instead of HTTPS for Git operations
+- Completely bypasses the need for tokens or keychain for Git operations
+- Requires SSH keys to be set up with GitHub
+- To set up:
+  1. Generate an SSH key: `ssh-keygen -t ed25519 -C "your_email@example.com"`
+  2. Start the SSH agent: `eval "$(ssh-agent -s)"`
+  3. Add your key: `ssh-add ~/.ssh/id_ed25519`
+  4. Add the key to GitHub: https://github.com/settings/keys
+  5. Test with: `ssh -T git@github.com`
+- Use with: `--use-ssh` flag
+- **Note**: This still requires a token for GitHub API operations, but not for Git operations
+- For users experiencing keychain issues, this is the most reliable method
 
 ## Installation
 
@@ -231,4 +341,12 @@ If you encounter authentication errors:
    Ensure your token has the necessary permissions listed above.
 
 3. **OAuth Application Re-authorization**:
-   If you see a message about re-authorizing an OAuth application, visit GitHub and approve the authorization request. 
+   If you see a message about re-authorizing an OAuth application, visit GitHub and approve the authorization request.
+
+4. **Keychain Access Issues on macOS**:
+   If you're experiencing issues with macOS keychain prompts or access:
+   - Use the direct token authentication method: `--auth-provider direct --token YOUR_TOKEN`
+   - This method explicitly disables Git's credential helper to prevent keychain access
+   - If you still see keychain prompts, try running: `git config --global credential.helper ""`
+   - To restore normal Git behavior later: `git config --global credential.helper osxkeychain`
+   - **Alternatively, use SSH authentication**: `--use-ssh` which completely bypasses the need for tokens or keychain for Git operations 
